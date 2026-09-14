@@ -19,7 +19,8 @@
 //! session.rs   the far end a test or the playground runs on loopback
 //! ```
 //!
-//! The endpoint and HTTP itself come from the http technology (ADR-0044).
+//! The endpoint, HTTP itself and the judgement of an answer come from the
+//! http technology (ADR-0044).
 //!
 //! A message is bytes, base64 on the wire, ten mebibytes at most:
 //! [`ceiling`]. A message has data or an attribute, and a Stream is data,
