@@ -290,7 +290,7 @@ mod tests {
     use std::thread::JoinHandle;
 
     fn node(endpoint: &str, token: &str) -> PubSubTransport {
-        PubSubTransport::new(endpoint, "acme", "orders", "orders-xmip")
+        PubSubTransport::new(endpoint, "partner-x", "orders", "orders-xmip")
             .with_token(token)
             .timing_out_after(Duration::from_secs(2))
     }
@@ -324,14 +324,14 @@ mod tests {
         assert!(
             arrived[0]
                 .origin_uri
-                .starts_with("pubsub://projects/acme/subscriptions/orders-xmip#")
+                .starts_with("pubsub://projects/partner-x/subscriptions/orders-xmip#")
         );
         let (session, events) = far_end.join().expect("thread");
         assert!(session.messages().is_empty(), "acknowledged after receive");
         assert_eq!(
             events[0],
             Event::Published(Arrived::new(
-                "pubsub://projects/acme/topics/orders#1",
+                "pubsub://projects/partner-x/topics/orders#1",
                 b"UNA:+.? '".to_vec()
             ))
         );

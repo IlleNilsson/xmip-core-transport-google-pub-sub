@@ -254,8 +254,8 @@ fn refused(code: u16, status: &str, message: &str) -> (Event, Response) {
 mod tests {
     use super::*;
 
-    const TOPIC: &str = "projects/acme/topics/orders";
-    const SUBSCRIPTION: &str = "projects/acme/subscriptions/orders-xmip";
+    const TOPIC: &str = "projects/partner-x/topics/orders";
+    const SUBSCRIPTION: &str = "projects/partner-x/subscriptions/orders-xmip";
 
     fn bearing(path: &str, document: &Value) -> Request {
         Request::new("POST", path)
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(
             event,
             Event::Published(Arrived::new(
-                "pubsub://projects/acme/topics/orders#1",
+                "pubsub://projects/partner-x/topics/orders#1",
                 b"a<b".to_vec()
             ))
         );
@@ -318,12 +318,12 @@ mod tests {
         ));
         assert_eq!(response.status, 400);
         let (_, response) = session.answer(&bearing(
-            "/v1/projects/acme/subscriptions/x:pull",
+            "/v1/projects/partner-x/subscriptions/x:pull",
             &json!({}),
         ));
         assert_eq!(response.status, 404);
         let (_, response) = session.answer(&bearing(
-            "/v1/projects/acme/subscriptions/x:acknowledge",
+            "/v1/projects/partner-x/subscriptions/x:acknowledge",
             &json!({}),
         ));
         assert_eq!(response.status, 404);
