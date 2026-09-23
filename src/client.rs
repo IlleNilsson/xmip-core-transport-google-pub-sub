@@ -154,8 +154,8 @@ mod tests {
     use crate::session::{Event, Session};
     use transport::socket;
 
-    const TOPIC: &str = "projects/acme/topics/orders";
-    const SUBSCRIPTION: &str = "projects/acme/subscriptions/orders-xmip";
+    const TOPIC: &str = "projects/partner-x/topics/orders";
+    const SUBSCRIPTION: &str = "projects/partner-x/subscriptions/orders-xmip";
 
     #[test]
     fn the_three_calls_reach_a_session_and_come_back_shaped_as_the_api_shapes_them() {
@@ -185,7 +185,7 @@ mod tests {
             .acknowledge(SUBSCRIPTION, &[pulled[0].ack_id.clone()])
             .expect("acknowledged");
         let missing = client
-            .pull("projects/acme/subscriptions/nobody")
+            .pull("projects/partner-x/subscriptions/nobody")
             .expect_err("no such subscription");
         assert!(missing.message.contains("404"), "{missing}");
         assert!(!missing.retryable);
