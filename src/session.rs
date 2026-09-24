@@ -13,8 +13,7 @@ use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use codec::base64;
 use serde_json::{Value, json};
 use transport::Arrived;
 use transport::error::Result;
@@ -134,7 +133,7 @@ impl Session {
         };
         let mut decoded = Vec::with_capacity(messages.len());
         for message in messages {
-            let data = match STANDARD.decode(message["data"].as_str().unwrap_or_default()) {
+            let data = match base64::decode(message["data"].as_str().unwrap_or_default()) {
                 Ok(data) => data,
                 Err(e) => return refused(400, "INVALID_ARGUMENT", &format!("Not base64: {e}")),
             };
@@ -192,7 +191,7 @@ impl Session {
             held.in_flight = true;
             received.push(json!({
                 "ackId": format!("ack-{}", held.id),
-                "message": { "data": STANDARD.encode(&held.data), "messageId": held.id },
+                "message": { "data": base64::encode(&held.data), "messageId": held.id },
             }));
         }
         let count = received.len();
