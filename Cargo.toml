@@ -17,7 +17,7 @@ path = "src/lib.rs"
 # A Technology depends on its parent Capability, never the reverse
 # (repository-model.md).
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main" }
-# The endpoint parser, the request and its answer, percent-encoding, and TLS
+# The endpoint parser, the request and its answer, and TLS
 # behind the `tls` feature — one TLS stack in the estate, the http
 # technology's (ADR-0033).
 http = { package = "xmip-core-transport-http", git = "https://github.com/IlleNilsson/xmip-core-transport-http", branch = "main" }

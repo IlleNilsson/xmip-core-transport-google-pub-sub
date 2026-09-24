@@ -48,7 +48,9 @@ use std::time::Duration;
 pub use client::{Client, MAX_MESSAGES, Received};
 use http::endpoint;
 pub use session::{Event, Session};
+use transport::ceiling;
 use transport::error::{Result, TransportError, protocol_error};
+use transport::listening::Listening;
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
 use transport::{Arrived, Directions, Transport};
@@ -205,13 +207,7 @@ impl Transport for PubSubTransport {
         if let Some(why) = refusal(bytes) {
             return Err(TransportError::permanent(why));
         }
-        if bytes.len() > ceiling() {
-            return Err(TransportError::permanent(format!(
-                "{} bytes is over the {} one Pub/Sub message carries",
-                bytes.len(),
-                ceiling()
-            )));
-        }
+        ceiling::within(bytes.len(), ceiling(), "one Pub/Sub message carries")?;
         self.client()?
             .publish(&self.resolve(target), bytes)
             .map(|_| ())
@@ -234,27 +230,6 @@ impl PubSubTransport {
     }
 }
 
-/// A bound session waiting for its one publish.
-struct Serving {
-    session: Session,
-    listener: TcpListener,
-    address: String,
-}
-
-impl FarEnd for Serving {
-    fn address(&self) -> &str {
-        &self.address
-    }
-
-    fn take_one(mut self: Box<Self>) -> Result<Arrived> {
-        match self.session.serve_one(&self.listener)? {
-            Event::Published(arrived) => Ok(arrived),
-            Event::Refused(status) => Err(protocol_error(format!("the session refused: {status}"))),
-            other => Err(protocol_error(format!("not a publish: {other:?}"))),
-        }
-    }
-}
-
 impl Loopback for PubSubTransport {
     fn ceiling(&self) -> Option<usize> {
         Some(ceiling())
@@ -265,12 +240,17 @@ impl Loopback for PubSubTransport {
     }
 
     fn far_end(&self) -> Result<Box<dyn FarEnd>> {
-        let (listener, address) = socket::bind_tcp(&endpoint::authority(&self.endpoint)?)?;
-        Ok(Box::new(Serving {
-            session: self.session(),
-            listener,
-            address,
-        }))
+        let mut session = self.session();
+        Ok(Box::new(Listening::new(
+            move |listener: &TcpListener| match session.serve_one(listener)? {
+                Event::Published(arrived) => Ok(arrived),
+                Event::Refused(status) => {
+                    Err(protocol_error(format!("the session refused: {status}")))
+                }
+                other => Err(protocol_error(format!("not a publish: {other:?}"))),
+            },
+            socket::bind_tcp(&endpoint::authority(&self.endpoint)?)?,
+        )))
     }
 
     /// Publish the payload as one message, from a fresh near end
