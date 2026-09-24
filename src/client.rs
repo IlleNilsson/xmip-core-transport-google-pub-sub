@@ -10,8 +10,7 @@
 
 use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use codec::base64;
 use serde_json::{Value, json};
 use transport::error::{Result, protocol_error};
 
@@ -66,7 +65,7 @@ impl Client {
     /// Where the endpoint refused or could not be reached, or answered
     /// with no id.
     pub fn publish(&self, topic: &str, bytes: &[u8]) -> Result<String> {
-        let document = json!({ "messages": [{ "data": STANDARD.encode(bytes) }] });
+        let document = json!({ "messages": [{ "data": base64::encode(bytes) }] });
         let answer = self.call(topic, "publish", &document)?;
         answer["messageIds"][0]
             .as_str()
@@ -117,8 +116,7 @@ impl Client {
 /// One received message as the API writes it, read back.
 fn received(value: &Value) -> Result<Received> {
     let text = |name: &str| value[name].as_str().unwrap_or_default().to_string();
-    let data = STANDARD
-        .decode(value["message"]["data"].as_str().unwrap_or_default())
+    let data = base64::decode(value["message"]["data"].as_str().unwrap_or_default())
         .map_err(|e| protocol_error(format!("a message whose data is not base64: {e}")))?;
     Ok(Received {
         ack_id: text("ackId"),
