@@ -65,8 +65,12 @@ impl Client {
     /// Where the endpoint refused or could not be reached, or answered
     /// with no id.
     pub fn publish(&self, topic: &str, bytes: &[u8]) -> Result<String> {
-        let document = json!({ "messages": [{ "data": base64::encode(bytes) }] });
-        let answer = self.call(topic, "publish", &document)?;
+        // Written around the encoded text rather than through a JSON value:
+        // base 64 needs no escaping, and escaping a payload at the ceiling
+        // took long enough in a debug build that the far end stopped waiting
+        // for the connection (2026-09-24).
+        let body = format!(r#"{{"messages":[{{"data":"{}"}}]}}"#, base64::encode(bytes));
+        let answer = self.call(topic, "publish", body.as_bytes())?;
         answer["messageIds"][0]
             .as_str()
             .map(str::to_string)
@@ -82,7 +86,7 @@ impl Client {
     /// messages that are not base64.
     pub fn pull(&self, subscription: &str) -> Result<Vec<Received>> {
         let document = json!({ "maxMessages": MAX_MESSAGES });
-        let answer = self.call(subscription, "pull", &document)?;
+        let answer = self.call(subscription, "pull", document.to_string().as_bytes())?;
         answer["receivedMessages"].as_array().map_or_else(
             || Ok(Vec::new()),
             |each| each.iter().map(received).collect(),
@@ -96,16 +100,16 @@ impl Client {
     /// Where the endpoint refused or could not be reached.
     pub fn acknowledge(&self, subscription: &str, ack_ids: &[String]) -> Result<()> {
         let document = json!({ "ackIds": ack_ids });
-        self.call(subscription, "acknowledge", &document)
+        self.call(subscription, "acknowledge", document.to_string().as_bytes())
             .map(|_| ())
     }
 
-    fn call(&self, resource: &str, verb: &str, document: &Value) -> Result<Value> {
+    fn call(&self, resource: &str, verb: &str, body: &[u8]) -> Result<Value> {
         let request = Request::new("POST", format!("/v1/{resource}:{verb}"))
             .header("Host", &self.host)
             .header("Authorization", &format!("Bearer {}", self.token))
             .header("Content-Type", "application/json")
-            .body(document.to_string().as_bytes());
+            .body(body);
         let stream = endpoint::connect(&self.endpoint, self.timeout)?;
         let answer = judge(message::exchange(stream, &request)?)?;
         serde_json::from_slice(&answer.body)
