@@ -46,7 +46,7 @@ use std::net::TcpListener;
 use std::time::Duration;
 
 pub use client::{Client, MAX_MESSAGES, Received};
-use http::endpoint;
+use net::Endpoint;
 pub use session::{Event, Session};
 use transport::ceiling;
 use transport::error::{Result, TransportError, protocol_error};
@@ -249,7 +249,7 @@ impl Loopback for PubSubTransport {
                 }
                 other => Err(protocol_error(format!("not a publish: {other:?}"))),
             },
-            socket::bind_tcp(&endpoint::authority(&self.endpoint)?)?,
+            socket::bind_tcp(&Endpoint::parse(&self.endpoint)?.address())?,
         )))
     }
 

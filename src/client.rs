@@ -15,7 +15,9 @@ use serde_json::{Value, json};
 use transport::error::{Result, protocol_error};
 
 use http::endpoint;
-use http::message::{self, Request, Response};
+use http::status;
+use net::Endpoint;
+use net::http::{Request, Response};
 
 /// The most one pull hands back.
 pub const MAX_MESSAGES: u8 = 10;
@@ -29,8 +31,7 @@ pub struct Received {
 }
 
 pub struct Client {
-    endpoint: String,
-    host: String,
+    endpoint: Endpoint,
     token: String,
     timeout: Option<Duration>,
 }
@@ -44,8 +45,7 @@ impl Client {
     /// Where `endpoint` is not an HTTP URL.
     pub fn new(endpoint: &str, token: &str) -> Result<Self> {
         Ok(Self {
-            endpoint: endpoint.to_string(),
-            host: endpoint::authority(endpoint)?,
+            endpoint: Endpoint::parse(endpoint)?,
             token: token.to_string(),
             timeout: None,
         })
@@ -106,12 +106,12 @@ impl Client {
 
     fn call(&self, resource: &str, verb: &str, body: &[u8]) -> Result<Value> {
         let request = Request::new("POST", format!("/v1/{resource}:{verb}"))
-            .header("Host", &self.host)
+            .header("Host", &self.endpoint.authority())
             .header("Authorization", &format!("Bearer {}", self.token))
             .header("Content-Type", "application/json")
             .body(body);
         let stream = endpoint::connect(&self.endpoint, self.timeout)?;
-        let answer = judge(message::exchange(stream, &request)?)?;
+        let answer = judge(net::http::exchange(stream, &request)?)?;
         serde_json::from_slice(&answer.body)
             .map_err(|e| protocol_error(format!("an answer that is not JSON: {e}")))
     }
@@ -139,7 +139,7 @@ fn received(value: &Value) -> Result<Received> {
 /// # Errors
 /// Where the status is not 2xx.
 pub fn judge(response: Response) -> Result<Response> {
-    message::judge("Pub/Sub", response, reason, |_| false)
+    status::judge("Pub/Sub", response, reason, |_| false)
 }
 
 /// The message an error answer carries, or nothing.

@@ -19,8 +19,8 @@ use transport::Arrived;
 use transport::error::Result;
 
 use crate::{ceiling, refusal};
-use http::message::{Request, Response};
 use http::server;
+use net::http::{Request, Response};
 
 /// What the client did, as [`Session::serve_one`] reports it.
 #[derive(Clone, Debug, PartialEq, Eq)]
