@@ -21,6 +21,9 @@ transport = { package = "xmip-core-transport", git = "https://github.com/IlleNil
 # behind the `tls` feature — one TLS stack in the estate, the http
 # technology's (ADR-0033).
 http = { package = "xmip-core-transport-http", git = "https://github.com/IlleNilsson/xmip-core-transport-http", branch = "main" }
+# HTTP/1.1 on the wire (`net::http`) and the URL an endpoint is
+# (`net::Endpoint`): the one codec every technology riding on HTTP calls.
+net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
 # The API answers in JSON, and serde reads it.
 serde_json = "1"
 # Bytes travel in JSON as base64, the estate's one: codec's.
