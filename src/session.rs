@@ -268,7 +268,10 @@ mod tests {
         let publish = format!("/v1/{TOPIC}:publish");
         let two = json!({ "messages": [{ "data": "YTxi" }, { "data": "AP8=" }] });
         let (event, response) = session.answer(&bearing(&publish, &two));
-        assert_eq!(response.text(), r#"{"messageIds":["1","2"]}"#);
+        assert_eq!(
+            response.text().expect("text"),
+            r#"{"messageIds":["1","2"]}"#
+        );
         assert_eq!(
             event,
             Event::Published(Arrived::new(
@@ -278,17 +281,25 @@ mod tests {
         );
         let pull = format!("/v1/{SUBSCRIPTION}:pull");
         let (event, response) = session.answer(&bearing(&pull, &json!({ "maxMessages": 1 })));
-        assert!(response.text().contains(r#""ackId":"ack-1""#));
-        assert!(response.text().contains(r#""data":"YTxi""#));
+        assert!(
+            response
+                .text()
+                .expect("text")
+                .contains(r#""ackId":"ack-1""#)
+        );
+        assert!(response.text().expect("text").contains(r#""data":"YTxi""#));
         assert!(matches!(event, Event::Pulled { count: 1, .. }));
         let (event, response) = session.answer(&bearing(&pull, &json!({ "maxMessages": 10 })));
         assert!(
-            response.text().contains(r#""ackId":"ack-2""#),
+            response
+                .text()
+                .expect("text")
+                .contains(r#""ackId":"ack-2""#),
             "the second, not the first again"
         );
         assert!(matches!(event, Event::Pulled { count: 1, .. }));
         let (_, response) = session.answer(&bearing(&pull, &json!({})));
-        assert_eq!(response.text(), "{}");
+        assert_eq!(response.text().expect("text"), "{}");
         let acknowledge = format!("/v1/{SUBSCRIPTION}:acknowledge");
         let (event, response) =
             session.answer(&bearing(&acknowledge, &json!({ "ackIds": ["ack-1"] })));
