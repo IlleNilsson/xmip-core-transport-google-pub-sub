@@ -53,7 +53,8 @@ use transport::error::{Result, TransportError, protocol_error};
 use transport::listening::Listening;
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
-use transport::{Arrived, Directions, Transport};
+use transport::{Arrived, Configured, Directions, Transport};
+use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
 
 /// The largest message Pub/Sub carries: ten mebibytes, the number its own
 /// refusal names.
@@ -214,6 +215,62 @@ impl Transport for PubSubTransport {
     }
 }
 
+impl Configured for PubSubTransport {
+    /// The address is the REST API's endpoint, `https://pubsub.googleapis.com`
+    /// in the cloud.
+    const SETTINGS: &'static Settings = &Settings {
+        technology: env!("CARGO_PKG_NAME"),
+        settings: &[
+            Setting {
+                name: "project",
+                kind: Kind::Text,
+                presence: Presence::Required,
+                meaning: "The project the topic and the subscription belong to.",
+                applies: Applies::Both,
+            },
+            Setting {
+                name: "topic",
+                kind: Kind::Text,
+                presence: Presence::Required,
+                meaning: "The topic a Location publishes to unless the target names another.",
+                applies: Applies::Send,
+            },
+            Setting {
+                name: "subscription",
+                kind: Kind::Text,
+                presence: Presence::Required,
+                meaning: "The subscription a Location pulls from and acknowledges on.",
+                applies: Applies::Receive,
+            },
+            Setting {
+                name: "timeout",
+                kind: Kind::Duration,
+                presence: Presence::Optional,
+                meaning: "How long an endpoint that stops answering is waited on; unbounded \
+                          when left out.",
+                applies: Applies::Both,
+            },
+        ],
+    };
+
+    /// The bearer token comes through the Location's credentials, never a
+    /// setting; the transport is built without it. A Receive Location
+    /// publishes to no topic and a Send Location pulls from no
+    /// subscription, so each leaves the other's empty.
+    fn configured(address: &str, settings: &Read) -> Result<Self> {
+        let transport = Self::new(
+            address,
+            settings.text("project"),
+            settings.optional_text("topic").unwrap_or_default(),
+            settings.optional_text("subscription").unwrap_or_default(),
+        );
+        Ok(match settings.optional_duration("timeout") {
+            Some(timeout) => transport.timing_out_after(timeout),
+            None => transport,
+        })
+    }
+}
+
 impl PubSubTransport {
     /// Both ends on this machine: an ephemeral local port, one token the
     /// far end expects and the near end presents, the loopback timeout.
@@ -268,6 +325,35 @@ impl Loopback for PubSubTransport {
 mod tests {
     use super::*;
     use std::thread::JoinHandle;
+    use xcore::settings::Given;
+
+    #[test]
+    fn google_pub_sub_declares_its_settings_and_reads_through_them() {
+        assert_eq!(PubSubTransport::SETTINGS.problems(), Vec::<String>::new());
+        let endpoint = "https://pubsub.googleapis.com";
+        let given = [
+            ("project".to_string(), Given::Text("partner-x".to_string())),
+            (
+                "subscription".to_string(),
+                Given::Text("orders-xmip".to_string()),
+            ),
+            ("timeout".to_string(), Given::Text("5s".to_string())),
+        ];
+        let built = PubSubTransport::open(endpoint, Applies::Receive, &given).expect("built");
+        assert_eq!(
+            built.subscription_name(),
+            "projects/partner-x/subscriptions/orders-xmip"
+        );
+        assert_eq!(built.timeout, Some(Duration::from_secs(5)));
+        assert!(
+            built.token.is_empty(),
+            "the token is the Location's credentials"
+        );
+        let Err(refused) = PubSubTransport::open(endpoint, Applies::Send, &given[..1]) else {
+            panic!("a Send Location's topic is required");
+        };
+        assert!(refused.message.contains("\"topic\""), "{}", refused.message);
+    }
 
     fn node(endpoint: &str, token: &str) -> PubSubTransport {
         PubSubTransport::new(endpoint, "partner-x", "orders", "orders-xmip")
