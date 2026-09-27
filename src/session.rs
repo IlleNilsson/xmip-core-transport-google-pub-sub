@@ -105,7 +105,8 @@ impl Session {
 
     fn answer(&mut self, request: &Request) -> (Event, Response) {
         let bearer = format!("Bearer {}", self.token);
-        if request.header_value("authorization") != Some(bearer.as_str()) {
+        let presented = request.header_value("authorization").unwrap_or_default();
+        if !codec::constant_time::equal(presented.as_bytes(), bearer.as_bytes()) {
             return refused(401, "UNAUTHENTICATED", "Request had invalid credentials");
         }
         let Some((resource, verb)) = request
