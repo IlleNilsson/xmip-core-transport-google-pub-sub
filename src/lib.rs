@@ -48,8 +48,8 @@ use std::time::Duration;
 pub use client::{Client, MAX_MESSAGES, Received};
 use http::endpoint::Connections;
 use net::Endpoint;
+use net::ceiling;
 pub use session::{Event, Session};
-use transport::ceiling;
 use transport::error::{Result, TransportError, protocol_error};
 use transport::listening::Listening;
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
@@ -157,14 +157,14 @@ impl PubSubTransport {
 
     /// This transport's topic in full: `projects/<p>/topics/<t>`.
     #[must_use]
-    pub fn topic_name(&self) -> String {
+    fn topic_name(&self) -> String {
         format!("projects/{}/topics/{}", self.project, self.topic)
     }
 
     /// This transport's subscription in full:
     /// `projects/<p>/subscriptions/<s>`.
     #[must_use]
-    pub fn subscription_name(&self) -> String {
+    fn subscription_name(&self) -> String {
         format!(
             "projects/{}/subscriptions/{}",
             self.project, self.subscription
