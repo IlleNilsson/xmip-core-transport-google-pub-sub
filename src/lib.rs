@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(PubSubTransport::SETTINGS.problems(), Vec::<String>::new());
         let endpoint = "https://pubsub.googleapis.com";
         let given = [
-            ("project".to_string(), Given::Text("partner-x".to_string())),
+            ("project".to_string(), Given::Text("party-x".to_string())),
             (
                 "subscription".to_string(),
                 Given::Text("orders-xmip".to_string()),
@@ -348,7 +348,7 @@ mod tests {
         let built = PubSubTransport::open(endpoint, Applies::Receive, &given).expect("built");
         assert_eq!(
             built.subscription_name(),
-            "projects/partner-x/subscriptions/orders-xmip"
+            "projects/party-x/subscriptions/orders-xmip"
         );
         assert_eq!(built.timeout, Some(Duration::from_secs(5)));
         assert!(
@@ -362,7 +362,7 @@ mod tests {
     }
 
     fn node(endpoint: &str, token: &str) -> PubSubTransport {
-        PubSubTransport::new(endpoint, "partner-x", "orders", "orders-xmip")
+        PubSubTransport::new(endpoint, "party-x", "orders", "orders-xmip")
             .with_token(token)
             .timing_out_after(Duration::from_secs(2))
     }
@@ -396,14 +396,14 @@ mod tests {
         assert!(
             arrived[0]
                 .origin_uri
-                .starts_with("pubsub://projects/partner-x/subscriptions/orders-xmip#")
+                .starts_with("pubsub://projects/party-x/subscriptions/orders-xmip#")
         );
         let (session, events) = far_end.join().expect("thread");
         assert!(session.messages().is_empty(), "acknowledged after receive");
         assert_eq!(
             events[0],
             Event::Published(Arrived::new(
-                "pubsub://projects/partner-x/topics/orders#1",
+                "pubsub://projects/party-x/topics/orders#1",
                 b"UNA:+.? '".to_vec()
             ))
         );
