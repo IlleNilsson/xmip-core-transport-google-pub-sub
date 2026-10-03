@@ -3,11 +3,12 @@
 //!
 //! Not Pub/Sub. One session holds the messages of every topic it is asked
 //! about in memory, knows which subscription reads which topic, checks
-//! every request for one bearer token, and answers the three calls with
+//! every request for one bearer token, and answers the four calls with
 //! the shapes the API answers them — the message ids, the received
 //! messages with their ack ids, the error with its status. A pulled
 //! message stays in flight until it is acknowledged, as the service keeps
-//! it; a pull that finds nothing answers at once.
+//! it, or until its deadline is set to zero; a pull that finds nothing
+//! answers at once.
 
 use std::collections::BTreeMap;
 use std::net::TcpListener;
@@ -15,7 +16,7 @@ use std::time::Duration;
 
 use codec::base64;
 use serde_json::{Value, json};
-use transport::Arrived;
+use transport::Taken;
 use transport::error::Result;
 
 use crate::{ceiling, refusal};
@@ -27,11 +28,14 @@ use net::http::{Request, Response};
 pub enum Event {
     /// The client published a message; here is the Stream, its origin the
     /// topic and the id it was given.
-    Published(Arrived),
+    Published(Taken),
     /// The client pulled `count` messages from `subscription`.
     Pulled { subscription: String, count: usize },
     /// The client acknowledged these messages, by id.
     Acknowledged(Vec<String>),
+    /// The client set these messages' deadline to zero, by id: offered
+    /// again.
+    Nacked(Vec<String>),
     /// The client was answered with this error status.
     Refused(String),
 }
@@ -124,7 +128,8 @@ impl Session {
             ("POST", "publish") => self.publish(resource, &document),
             ("POST", "pull") => self.pull(resource, &document),
             ("POST", "acknowledge") => self.acknowledge(resource, &document),
-            _ => refused(404, "NOT_FOUND", "Not one of the three calls"),
+            ("POST", "modifyAckDeadline") => self.nack(resource, &document),
+            _ => refused(404, "NOT_FOUND", "Not one of the four calls"),
         }
     }
 
@@ -155,7 +160,7 @@ impl Session {
         for data in decoded {
             let id = self.next.to_string();
             self.next += 1;
-            first.get_or_insert_with(|| Arrived::new(origin(topic, &id), data.clone()));
+            first.get_or_insert_with(|| Taken::new(origin(topic, &id), data.clone()));
             self.topics
                 .entry(topic.to_string())
                 .or_default()
@@ -167,8 +172,8 @@ impl Session {
             ids.push(id);
         }
         match first {
-            Some(arrived) => (
-                Event::Published(arrived),
+            Some(taken) => (
+                Event::Published(taken),
                 answer(&json!({ "messageIds": ids })),
             ),
             None => refused(400, "INVALID_ARGUMENT", "A publish with no messages"),
@@ -215,19 +220,47 @@ impl Session {
                 &format!("Resource not found: {subscription}"),
             );
         };
-        let ids: Vec<String> = document["ackIds"]
-            .as_array()
-            .map(|each| {
-                each.iter()
-                    .filter_map(|ack| ack.as_str()?.strip_prefix("ack-"))
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let ids = acknowledged(document);
         let held = self.topics.entry(topic).or_default();
         held.retain(|m| !(m.in_flight && ids.contains(&m.id)));
         (Event::Acknowledged(ids), answer(&json!({})))
     }
+
+    /// `modifyAckDeadline`: only to zero seconds, which is how a Location
+    /// nacks what a receive cycle refused — the messages are offered to the
+    /// next pull at once.
+    fn nack(&mut self, subscription: &str, document: &Value) -> (Event, Response) {
+        let Some(topic) = self.subscriptions.get(subscription).cloned() else {
+            return refused(
+                404,
+                "NOT_FOUND",
+                &format!("Resource not found: {subscription}"),
+            );
+        };
+        if document["ackDeadlineSeconds"].as_u64() != Some(0) {
+            return refused(400, "INVALID_ARGUMENT", "A deadline other than zero");
+        }
+        let ids = acknowledged(document);
+        for held in self.topics.entry(topic).or_default() {
+            if ids.contains(&held.id) {
+                held.in_flight = false;
+            }
+        }
+        (Event::Nacked(ids), answer(&json!({})))
+    }
+}
+
+/// The message ids a document's `ackIds` name.
+fn acknowledged(document: &Value) -> Vec<String> {
+    document["ackIds"]
+        .as_array()
+        .map(|each| {
+            each.iter()
+                .filter_map(|ack| ack.as_str()?.strip_prefix("ack-"))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The message `id` on `topic`, as an origin says it.
@@ -275,7 +308,7 @@ mod tests {
         );
         assert_eq!(
             event,
-            Event::Published(Arrived::new(
+            Event::Published(Taken::new(
                 "pubsub://projects/party-x/topics/orders#1",
                 b"a<b".to_vec()
             ))

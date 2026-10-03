@@ -1,9 +1,10 @@
-//! Xmip's side: the three calls a Location makes, each one request with a
+//! Xmip's side: the four calls a Location makes, each one request with a
 //! bearer token over one connection.
 //!
 //! The REST API, because it is one HTTP call per operation and answers in
 //! a shape serde reads: `POST /v1/projects/<p>/topics/<t>:publish`,
-//! `POST /v1/projects/<p>/subscriptions/<s>:pull`, `POST …:acknowledge`.
+//! `POST /v1/projects/<p>/subscriptions/<s>:pull`, `POST …:acknowledge`,
+//! `POST …:modifyAckDeadline`.
 //! Obtaining the token is outside this crate: a Location is configured
 //! with one — from a service account, a metadata server, or an operator —
 //! and hands it on as `Authorization: Bearer`.
@@ -114,6 +115,22 @@ impl Client {
         let document = json!({ "ackIds": ack_ids });
         self.call(subscription, "acknowledge", document.to_string().as_bytes())
             .map(|_| ())
+    }
+
+    /// Nack the messages `ack_ids` were received with — their deadline set
+    /// to zero seconds — so the subscription offers them to the next pull
+    /// at once, rather than after the deadline lapses.
+    ///
+    /// # Errors
+    /// Where the endpoint refused or could not be reached.
+    pub fn nack(&self, subscription: &str, ack_ids: &[String]) -> Result<()> {
+        let document = json!({ "ackIds": ack_ids, "ackDeadlineSeconds": 0 });
+        self.call(
+            subscription,
+            "modifyAckDeadline",
+            document.to_string().as_bytes(),
+        )
+        .map(|_| ())
     }
 
     fn call(&self, resource: &str, verb: &str, body: &[u8]) -> Result<Value> {

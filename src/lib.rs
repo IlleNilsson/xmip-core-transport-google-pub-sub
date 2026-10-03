@@ -5,17 +5,21 @@
 //!
 //! Pub/Sub is the message bus of every organisation that lives in Google
 //! Cloud: a topic, and subscriptions that keep what is published to it
-//! until each reader acknowledges. Its REST API is three calls: publish
-//! to a topic, pull from a subscription, acknowledge what was pulled. A
-//! Receive Location pulls, hands each message on as a Stream and
-//! acknowledges it once it is; a Send Location publishes a Stream as one
-//! message. Both present a bearer token over plain HTTP/1.1 on a socket —
-//! `https://` with the `tls` feature, which is the http technology's TLS
-//! (ADR-0033). Obtaining the token is outside: a Location is configured
-//! with it.
+//! until each reader acknowledges. Its REST API is four calls: publish
+//! to a topic, pull from a subscription, acknowledge what was pulled, or
+//! set its deadline to zero to have it offered again. A Receive Location
+//! pulls and hands each message on as a Stream, still in flight; it
+//! acknowledges it once the runtime accepts it after the whole receive
+//! cycle, acknowledges it too where the cycle refused it — the API has no
+//! call that dead-letters one message — and nacks it where the cycle
+//! failed. A Send Location
+//! publishes a Stream as one message. Both present a bearer token over
+//! plain HTTP/1.1 on a socket — `https://` with the `tls` feature, which is
+//! the http technology's TLS (ADR-0033). Obtaining the token is outside: a
+//! Location is configured with it.
 //!
 //! ```text
-//! client.rs    Xmip's side: publish, pull, acknowledge, JSON read by serde
+//! client.rs    Xmip's side: publish, pull, acknowledge, nack; JSON by serde
 //! session.rs   the far end a test or the playground runs on loopback
 //! ```
 //!
@@ -43,6 +47,7 @@ pub mod client;
 pub mod session;
 
 use std::net::TcpListener;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use client::{Client, MAX_MESSAGES, Received};
@@ -54,7 +59,7 @@ use transport::error::{Result, TransportError, protocol_error};
 use transport::listening::Listening;
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
-use transport::{Arrived, Configured, Directions, Transport};
+use transport::{Acknowledgement, Arrived, Configured, Directions, Transport, Verdict};
 use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
 
 /// The largest message Pub/Sub carries: ten mebibytes, the number its own
@@ -193,19 +198,35 @@ impl Transport for PubSubTransport {
         Directions::BOTH
     }
 
-    /// Every message one pull hands back, each acknowledged once it is a
-    /// Stream.
+    fn arrivals(&self) -> transport::Arrivals {
+        transport::Arrivals::Unordered(
+            "a message pulled stays leased from the next pull until it is told",
+        )
+    }
+
+    /// Every message one pull hands back, whole, each left in flight: the
+    /// receive acknowledges nothing. Its acknowledgement acknowledges the
+    /// message's ack id on [`Verdict::Accepted`], and on
+    /// [`Verdict::Refused`] too: a subscription's dead-letter policy moves a
+    /// message only after its maximum delivery attempts, and no call
+    /// dead-letters one message, so a refused message is acknowledged and
+    /// not pulled again — the runtime audited the refusal and keeps the
+    /// Stream. On [`Verdict::Failed`] it nacks it — its deadline set to
+    /// zero — so the next pull gets it again.
     fn receive(&self) -> Result<Vec<Arrived>> {
-        let client = self.client()?;
+        let client = Arc::new(self.client()?);
         let subscription = self.subscription_name();
         let pulled = client.pull(&subscription)?;
         let mut arrived = Vec::with_capacity(pulled.len());
         for message in pulled {
-            client.acknowledge(&subscription, &[message.ack_id])?;
-            arrived.push(Arrived::new(
-                format!("pubsub://{subscription}#{}", message.id),
-                message.data,
-            ));
+            let origin = format!("pubsub://{subscription}#{}", message.id);
+            let (client, from) = (Arc::clone(&client), subscription.clone());
+            let ack_ids = [message.ack_id];
+            let acknowledgement = Acknowledgement::deferred(move |verdict| match verdict {
+                Verdict::Accepted | Verdict::Refused(_) => client.acknowledge(&from, &ack_ids),
+                Verdict::Failed => client.nack(&from, &ack_ids),
+            });
+            arrived.push(Arrived::whole(origin, message.data, acknowledgement));
         }
         Ok(arrived)
     }
@@ -331,6 +352,7 @@ impl Loopback for PubSubTransport {
 mod tests {
     use super::*;
     use std::thread::JoinHandle;
+    use transport::Taken;
     use xcore::settings::Given;
 
     #[test]
@@ -381,34 +403,54 @@ mod tests {
     }
 
     #[test]
-    fn what_is_published_to_a_session_is_pulled_back_and_acknowledged() {
+    fn an_accepted_or_refused_message_is_acknowledged_and_a_failed_one_is_pulled_again() {
         let (listener, address) = socket::bind_tcp("127.0.0.1:0").expect("bind");
         let near = node(&format!("http://{address}"), "ya29.token");
-        // Two publishes, one pull, then an acknowledge per message.
-        let far_end = serve(near.session(), listener, 5);
+        // Three publishes, a pull, an acknowledge, a nack and an
+        // acknowledge, a pull, an acknowledge.
+        let far_end = serve(near.session(), listener, 9);
         near.send("", b"UNA:+.? '").expect("its own topic");
         near.send("orders", &[0, 0xff, b'\r', b'\n'])
             .expect("a name alone");
-        let arrived = near.receive().expect("received");
-        assert_eq!(arrived.len(), 2);
-        assert_eq!(arrived[0].bytes, b"UNA:+.? '");
-        assert_eq!(arrived[1].bytes, [0, 0xff, b'\r', b'\n']);
+        near.send("", b"C3").expect("its own topic");
+        let mut arrived = near.receive().expect("received");
+        assert_eq!(arrived.len(), 3);
+        assert!(arrived.iter().all(Arrived::defers));
+        let third = arrived.pop().expect("third");
+        let second = arrived.pop().expect("second");
+        let first = arrived.pop().expect("first").taken().expect("accepted");
+        assert_eq!(first.bytes, b"UNA:+.? '");
         assert!(
-            arrived[0]
+            first
                 .origin_uri
                 .starts_with("pubsub://projects/party-x/subscriptions/orders-xmip#")
         );
+        second.failed().expect("nacked");
+        third
+            .refused(transport::Refusal::Unacceptable)
+            .expect("acknowledged");
+        let again = near.receive().expect("pulled again");
+        assert_eq!(again.len(), 1, "the failed one, and only it");
+        let again = again.into_iter().next().expect("one").taken().expect("ok");
+        assert_eq!(again.bytes, [0, 0xff, b'\r', b'\n']);
         let (session, events) = far_end.join().expect("thread");
-        assert!(session.messages().is_empty(), "acknowledged after receive");
+        assert!(
+            session.messages().is_empty(),
+            "all acknowledged once answered"
+        );
         assert_eq!(
             events[0],
-            Event::Published(Arrived::new(
+            Event::Published(Taken::new(
                 "pubsub://projects/party-x/topics/orders#1",
                 b"UNA:+.? '".to_vec()
             ))
         );
-        assert!(matches!(&events[2], Event::Pulled { count: 2, .. }));
-        assert_eq!(events[3], Event::Acknowledged(vec!["1".to_string()]));
+        assert!(matches!(&events[3], Event::Pulled { count: 3, .. }));
+        assert_eq!(events[4], Event::Acknowledged(vec!["1".to_string()]));
+        assert_eq!(events[5], Event::Nacked(vec!["2".to_string()]));
+        assert_eq!(events[6], Event::Acknowledged(vec!["3".to_string()]));
+        assert!(matches!(&events[7], Event::Pulled { count: 1, .. }));
+        assert_eq!(events[8], Event::Acknowledged(vec!["2".to_string()]));
         assert_eq!(
             near.resolve("projects/other/topics/t"),
             "projects/other/topics/t"
