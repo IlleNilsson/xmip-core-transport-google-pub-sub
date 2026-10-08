@@ -29,6 +29,9 @@ pub struct Received {
     pub ack_id: String,
     pub id: String,
     pub data: Vec<u8>,
+    /// The message's attributes, as the publisher set them: what it says
+    /// of itself beside the data.
+    pub attributes: Vec<(String, String)>,
 }
 
 pub struct Client {
@@ -160,6 +163,15 @@ fn received(value: &Value) -> Result<Received> {
             .unwrap_or_default()
             .to_string(),
         data,
+        attributes: value["message"]["attributes"]
+            .as_object()
+            .map(|attributes| {
+                attributes
+                    .iter()
+                    .filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -241,5 +253,18 @@ mod tests {
         let nobody = Client::new("http://127.0.0.1:1", "t").expect("ok");
         assert!(nobody.pull(SUBSCRIPTION).expect_err("nobody").retryable);
         assert!(received(&json!({ "message": { "data": "not base64!" } })).is_err());
+    }
+
+    #[test]
+    fn a_pulled_message_keeps_the_attributes_its_publisher_set() {
+        let pulled = received(&json!({
+            "ackId": "a1",
+            "message": { "messageId": "m1", "data": "", "attributes": { "sender": "c1" } }
+        }))
+        .expect("received");
+        assert_eq!(
+            pulled.attributes,
+            [("sender".to_string(), "c1".to_string())]
+        );
     }
 }

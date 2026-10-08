@@ -55,11 +55,12 @@ use http::endpoint::Connections;
 use net::Endpoint;
 use net::ceiling;
 pub use session::{Event, Session};
+use transport::ArrivalIdentity;
 use transport::error::{Result, TransportError, protocol_error};
 use transport::listening::Listening;
 use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 use transport::socket;
-use transport::{Acknowledgement, Arrived, Configured, Directions, Transport, Verdict};
+use transport::{Acknowledgement, Arrived, Configured, Directions, Headers, Transport, Verdict};
 use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
 
 /// The largest message Pub/Sub carries: ten mebibytes, the number its own
@@ -226,7 +227,11 @@ impl Transport for PubSubTransport {
                 Verdict::Accepted | Verdict::Refused(_) => client.acknowledge(&from, &ack_ids),
                 Verdict::Failed => client.nack(&from, &ack_ids),
             });
-            arrived.push(Arrived::whole(origin, message.data, acknowledgement));
+            arrived.push(
+                Arrived::whole(origin, message.data, acknowledgement)
+                    .detected()
+                    .with_headers(Headers::of("pubsub").text(message.attributes)),
+            );
         }
         Ok(arrived)
     }
@@ -315,6 +320,10 @@ impl PubSubTransport {
 }
 
 impl Loopback for PubSubTransport {
+    fn arrival_identity(&self) -> ArrivalIdentity {
+        ArrivalIdentity::Unnamed("the subscription delivers it: its attributes say who sent it")
+    }
+
     fn ceiling(&self) -> Option<usize> {
         Some(ceiling())
     }
