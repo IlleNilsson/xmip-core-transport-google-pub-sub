@@ -205,6 +205,10 @@ impl Transport for PubSubTransport {
         )
     }
 
+    fn waiting(&self) -> transport::Waiting {
+        transport::Waiting::Waits("a pull waits at the service for messages")
+    }
+
     /// Every message one pull hands back, whole, each left in flight: the
     /// receive acknowledges nothing. Its acknowledgement acknowledges the
     /// message's ack id on [`Verdict::Accepted`], and on
