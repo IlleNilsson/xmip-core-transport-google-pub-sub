@@ -225,7 +225,10 @@ mod tests {
         assert_eq!(pulled[0].id, id);
         assert_eq!(pulled[0].data, b"UNA:+.? '");
         assert_eq!(pulled[1].data, [0, 0xff, b'\n']);
-        assert!(client.pull(SUBSCRIPTION).expect("pulled").is_empty());
+        assert_eq!(
+            client.pull(SUBSCRIPTION).expect("pulled"),
+            [] as [Received; 0]
+        );
         client
             .acknowledge(SUBSCRIPTION, &[pulled[0].ack_id.clone()])
             .expect("acknowledged");
