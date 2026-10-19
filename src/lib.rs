@@ -218,10 +218,10 @@ impl Transport for PubSubTransport {
     /// not pulled again — the runtime audited the refusal and keeps the
     /// Stream. On [`Verdict::Failed`] it nacks it — its deadline set to
     /// zero — so the next pull gets it again.
-    fn receive(&self) -> Result<Vec<Arrived>> {
+    fn receive_up_to(&self, most: usize) -> Result<Vec<Arrived>> {
         let client = Arc::new(self.client()?);
         let subscription = self.subscription_name();
-        let pulled = client.pull(&subscription)?;
+        let pulled = client.pull(&subscription, most)?;
         let mut arrived = Vec::with_capacity(pulled.len());
         for message in pulled {
             let origin = format!("pubsub://{subscription}#{}", message.id);
@@ -240,7 +240,14 @@ impl Transport for PubSubTransport {
         Ok(arrived)
     }
 
-    fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
+    fn sending(&self) -> transport::Sending {
+        transport::Sending::Gathered(
+            "one Pub/Sub message carries the whole body, encoded in its JSON",
+        )
+    }
+
+    fn send_from(&self, target: &str, outgoing: transport::Outgoing<'_>) -> Result<()> {
+        let bytes: &[u8] = &outgoing.gather()?;
         if let Some(why) = refusal(bytes) {
             return Err(TransportError::permanent(why));
         }
