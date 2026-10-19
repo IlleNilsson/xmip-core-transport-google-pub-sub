@@ -93,15 +93,16 @@ impl Client {
             .ok_or_else(|| protocol_error("a publish answered with no messageIds"))
     }
 
-    /// Up to [`MAX_MESSAGES`] messages from `subscription` —
+    /// Up to `most` messages, and [`MAX_MESSAGES`] at most, from `subscription` —
     /// `projects/<p>/subscriptions/<s>` — each held until it is
     /// acknowledged.
     ///
     /// # Errors
     /// Where the endpoint refused, could not be reached, or answered with
     /// messages that are not base64.
-    pub fn pull(&self, subscription: &str) -> Result<Vec<Received>> {
-        let document = json!({ "maxMessages": MAX_MESSAGES });
+    pub fn pull(&self, subscription: &str, most: usize) -> Result<Vec<Received>> {
+        let most = u8::try_from(most).map_or(MAX_MESSAGES, |most| most.clamp(1, MAX_MESSAGES));
+        let document = json!({ "maxMessages": most });
         let answer = self.call(subscription, "pull", document.to_string().as_bytes())?;
         answer["receivedMessages"].as_array().map_or_else(
             || Ok(Vec::new()),
@@ -220,20 +221,20 @@ mod tests {
         let id = client.publish(TOPIC, b"UNA:+.? '").expect("published");
         assert!(!id.is_empty(), "an id came back");
         client.publish(TOPIC, &[0, 0xff, b'\n']).expect("published");
-        let pulled = client.pull(SUBSCRIPTION).expect("pulled");
+        let pulled = client.pull(SUBSCRIPTION, usize::MAX).expect("pulled");
         assert_eq!(pulled.len(), 2);
         assert_eq!(pulled[0].id, id);
         assert_eq!(pulled[0].data, b"UNA:+.? '");
         assert_eq!(pulled[1].data, [0, 0xff, b'\n']);
         assert_eq!(
-            client.pull(SUBSCRIPTION).expect("pulled"),
+            client.pull(SUBSCRIPTION, usize::MAX).expect("pulled"),
             [] as [Received; 0]
         );
         client
             .acknowledge(SUBSCRIPTION, &[pulled[0].ack_id.clone()])
             .expect("acknowledged");
         let missing = client
-            .pull("projects/party-x/subscriptions/nobody")
+            .pull("projects/party-x/subscriptions/nobody", usize::MAX)
             .expect_err("no such subscription");
         assert!(missing.message.contains("404"), "{missing}");
         assert!(!missing.retryable);
@@ -254,7 +255,12 @@ mod tests {
         assert_eq!(failure.message, "Pub/Sub answered 403 no");
         assert!(Client::new("pubsub.local", "t").is_err());
         let nobody = Client::new("http://127.0.0.1:1", "t").expect("ok");
-        assert!(nobody.pull(SUBSCRIPTION).expect_err("nobody").retryable);
+        assert!(
+            nobody
+                .pull(SUBSCRIPTION, usize::MAX)
+                .expect_err("nobody")
+                .retryable
+        );
         assert!(received(&json!({ "message": { "data": "not base64!" } })).is_err());
     }
 
