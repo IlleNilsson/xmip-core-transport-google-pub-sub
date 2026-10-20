@@ -3,7 +3,7 @@
 //! Streams that arrive as messages on a Pub/Sub subscription. One message
 //! is one Stream, its id kept beside it.
 //!
-//! Pub/Sub is the message bus of every organisation that lives in Google
+//! Pub/Sub is the message bus of every organization that lives in Google
 //! Cloud: a topic, and subscriptions that keep what is published to it
 //! until each reader acknowledges. Its REST API is four calls: publish
 //! to a topic, pull from a subscription, acknowledge what was pulled, or
@@ -23,7 +23,7 @@
 //! session.rs   the far end a test or the playground runs on loopback
 //! ```
 //!
-//! The endpoint, HTTP itself and the judgement of an answer come from the
+//! The endpoint, HTTP itself and the judgment of an answer come from the
 //! http technology (ADR-0044).
 //!
 //! A message is bytes, base64 on the wire, ten mebibytes at most:
@@ -32,7 +32,7 @@
 //! says so before a request is formed rather than after the service
 //! answers `INVALID_ARGUMENT`.
 //!
-//! A subscription is not an artefact anyone claims: a pulled message is
+//! A subscription is not an artifact anyone claims: a pulled message is
 //! in flight until it is acknowledged, which is the subscription's own
 //! claim, so [`Transport::claims`] answers `None`. The origin URI is
 //! `pubsub://projects/<p>/subscriptions/<s>#<id>` for what was pulled and
