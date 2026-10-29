@@ -296,6 +296,9 @@ impl Configured for PubSubTransport {
         ],
     };
 
+    /// The schemes a Location's address is entered with to choose this technology.
+    const SCHEMES: &'static [&'static str] = &["pubsub"];
+
     /// The bearer token comes through the Location's credentials, never a
     /// setting; the transport is built without it. A Receive Location
     /// publishes to no topic and a Send Location pulls from no
