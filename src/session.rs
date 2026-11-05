@@ -1,5 +1,5 @@
 //! The far end: enough of Pub/Sub to answer one Location, and what a test
-//! or the playground puts on loopback.
+//! or the essentials puts on loopback.
 //!
 //! Not Pub/Sub. One session holds the messages of every topic it is asked
 //! about in memory, knows which subscription reads which topic, checks
