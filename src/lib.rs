@@ -20,7 +20,7 @@
 //!
 //! ```text
 //! client.rs    Xmip's side: publish, pull, acknowledge, nack; JSON by serde
-//! session.rs   the far end a test or the playground runs on loopback
+//! session.rs   the far end a test or the essentials runs on loopback
 //! ```
 //!
 //! The endpoint, HTTP itself and the judgment of an answer come from the
@@ -149,7 +149,7 @@ impl PubSubTransport {
     }
 
     /// A far end that expects this transport's token and knows its
-    /// subscription as a reader of its topic, for a test or the playground
+    /// subscription as a reader of its topic, for a test or the essentials
     /// to run on loopback.
     #[must_use]
     pub fn session(&self) -> Session {
@@ -538,7 +538,7 @@ mod tests {
         assert!(loopback.refuses(b"").is_some());
     }
 
-    /// The Playground's edge payloads, written here so the crate does not
+    /// The Essentials' edge payloads, written here so the crate does not
     /// depend on it, and one at the brim.
     fn edge_payloads() -> Vec<(&'static str, Vec<u8>)> {
         vec![
