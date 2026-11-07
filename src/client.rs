@@ -198,6 +198,7 @@ fn reason(response: &Response) -> String {
 mod tests {
     use super::*;
     use crate::session::{Event, Session};
+    use std::assert_matches;
     use transport::socket;
 
     const TOPIC: &str = "projects/party-x/topics/orders";
@@ -240,7 +241,7 @@ mod tests {
         assert!(!missing.retryable);
         let (session, events) = far_end.join().expect("thread");
         assert_eq!(session.messages().len(), 1, "one left in flight");
-        assert!(matches!(&events[2], Event::Pulled { count: 2, .. }));
+        assert_matches!(&events[2], Event::Pulled { count: 2, .. });
         assert_eq!(events[4], Event::Acknowledged(vec![id]));
         assert_eq!(events[5], Event::Refused("NOT_FOUND".to_string()));
     }

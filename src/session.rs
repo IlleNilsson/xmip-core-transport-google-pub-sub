@@ -286,6 +286,7 @@ fn refused(code: u16, status: &str, message: &str) -> (Event, Response) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     const TOPIC: &str = "projects/party-x/topics/orders";
     const SUBSCRIPTION: &str = "projects/party-x/subscriptions/orders-xmip";
@@ -322,7 +323,7 @@ mod tests {
                 .contains(r#""ackId":"ack-1""#)
         );
         assert!(response.text().expect("text").contains(r#""data":"YTxi""#));
-        assert!(matches!(event, Event::Pulled { count: 1, .. }));
+        assert_matches!(event, Event::Pulled { count: 1, .. });
         let (event, response) = session.answer(&bearing(&pull, &json!({ "maxMessages": 10 })));
         assert!(
             response
@@ -331,7 +332,7 @@ mod tests {
                 .contains(r#""ackId":"ack-2""#),
             "the second, not the first again"
         );
-        assert!(matches!(event, Event::Pulled { count: 1, .. }));
+        assert_matches!(event, Event::Pulled { count: 1, .. });
         let (_, response) = session.answer(&bearing(&pull, &json!({})));
         assert_eq!(response.text().expect("text"), "{}");
         let acknowledge = format!("/v1/{SUBSCRIPTION}:acknowledge");

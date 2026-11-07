@@ -374,6 +374,7 @@ impl Loopback for PubSubTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
     use std::thread::JoinHandle;
     use transport::Taken;
     use xcore::settings::Given;
@@ -468,11 +469,11 @@ mod tests {
                 b"UNA:+.? '".to_vec()
             ))
         );
-        assert!(matches!(&events[3], Event::Pulled { count: 3, .. }));
+        assert_matches!(&events[3], Event::Pulled { count: 3, .. });
         assert_eq!(events[4], Event::Acknowledged(vec!["1".to_string()]));
         assert_eq!(events[5], Event::Nacked(vec!["2".to_string()]));
         assert_eq!(events[6], Event::Acknowledged(vec!["3".to_string()]));
-        assert!(matches!(&events[7], Event::Pulled { count: 1, .. }));
+        assert_matches!(&events[7], Event::Pulled { count: 1, .. });
         assert_eq!(events[8], Event::Acknowledged(vec!["2".to_string()]));
         assert_eq!(
             near.resolve("projects/other/topics/t"),
