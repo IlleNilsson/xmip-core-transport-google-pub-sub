@@ -2,6 +2,8 @@
 
 Google Pub/Sub transport: a bearer token over the REST API — publish a Stream as one message to a topic, pull from a subscription and acknowledge each message once the runtime accepts it — a topic and a subscription are a Location. A technology of [xmip-core-transport](https://github.com/IlleNilsson/xmip-core-transport).
 
+A Send Location publishes to the topic its `project` and `topic` settings name: it sends to the empty target (`Configured::own_target`, `transport::destination::OWN`), which it reads, through `transport::destination::named`, as that topic, its address naming only the endpoint. A target naming another topic — `invoices`, or `projects/<project>/topics/invoices` — still wins (ADR-0064, amendment 2026-11-10).
+
 Requests go on connections kept between them (`http::endpoint::Connections`, offering HTTP/1.1): the transport holds them and hands them to every client it makes, so a call costs one exchange and not a connect, a TLS handshake and a `Connection: close`, as it did until 2026-09-27.
 
 ## How a pulled message is acknowledged

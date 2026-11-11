@@ -180,12 +180,10 @@ impl PubSubTransport {
     /// The topic a target names in full, a name alone in this transport's
     /// project, or its own where it names none.
     fn resolve(&self, target: &str) -> String {
-        if target.is_empty() {
-            self.topic_name()
-        } else if target.starts_with("projects/") {
-            target.to_string()
-        } else {
-            format!("projects/{}/topics/{target}", self.project)
+        match transport::destination::named(target) {
+            None => self.topic_name(),
+            Some(full) if full.starts_with("projects/") => full.to_string(),
+            Some(name) => format!("projects/{}/topics/{name}", self.project),
         }
     }
 }
@@ -299,6 +297,11 @@ impl Configured for PubSubTransport {
     /// The schemes a Location's address is entered with to choose this technology.
     const SCHEMES: &'static [&'static str] = &["pubsub"];
 
+    /// The topic setting: the address names only the endpoint.
+    fn own_target(_address: &str) -> &str {
+        transport::destination::OWN
+    }
+
     /// The bearer token comes through the Location's credentials, never a
     /// setting; the transport is built without it. A Receive Location
     /// publishes to no topic and a Send Location pulls from no
@@ -378,6 +381,19 @@ mod tests {
     use std::thread::JoinHandle;
     use transport::Taken;
     use xcore::settings::Given;
+
+    #[test]
+    fn a_send_location_publishes_to_its_topic_and_a_target_naming_another_wins() {
+        let location = "pubsub://pubsub.googleapis.com";
+        let given = [
+            ("project".to_string(), Given::Text("party-x".to_string())),
+            ("topic".to_string(), Given::Text("orders".to_string())),
+        ];
+        let sent = PubSubTransport::open(location, Applies::Send, &given).expect("built");
+        let own = sent.resolve(PubSubTransport::own_target(location));
+        assert_eq!(own, "projects/party-x/topics/orders");
+        assert_eq!(sent.resolve("invoices"), "projects/party-x/topics/invoices");
+    }
 
     #[test]
     fn google_pub_sub_declares_its_settings_and_reads_through_them() {
