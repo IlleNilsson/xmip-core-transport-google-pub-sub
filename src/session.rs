@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use transport::Taken;
 use transport::error::Result;
 
-use crate::{ceiling, refusal};
+use crate::{ceiling, origin, refusal};
 use http::server;
 use net::http::{Request, Response};
 
@@ -85,8 +85,8 @@ impl Session {
         self
     }
 
-    /// Every message held now, keyed `pubsub://<topic>#<id>`, in flight or
-    /// not.
+    /// Every message held now, keyed `google-pub-sub://<topic>#<id>`, in
+    /// flight or not.
     #[must_use]
     pub fn messages(&self) -> BTreeMap<String, Vec<u8>> {
         self.topics
@@ -268,12 +268,6 @@ fn acknowledged(document: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The message `id` on `topic`, as an origin says it.
-#[must_use]
-pub fn origin(topic: &str, id: &str) -> String {
-    format!("pubsub://{topic}#{id}")
-}
-
 fn answer(body: &Value) -> Response {
     Response::new(200)
         .header("Content-Type", "application/json; charset=UTF-8")
@@ -315,7 +309,7 @@ mod tests {
         assert_eq!(
             event,
             Event::Published(Taken::new(
-                "pubsub://projects/party-x/topics/orders#1",
+                "google-pub-sub://projects/party-x/topics/orders#1",
                 b"a<b".to_vec()
             ))
         );

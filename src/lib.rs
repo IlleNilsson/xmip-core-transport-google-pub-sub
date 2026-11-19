@@ -34,11 +34,14 @@
 //!
 //! A subscription is not an artifact anyone claims: a pulled message is
 //! in flight until it is acknowledged, which is the subscription's own
-//! claim, so [`Transport::claims`] answers `None`. The origin URI is
-//! `pubsub://projects/<p>/subscriptions/<s>#<id>` for what was pulled and
-//! `pubsub://projects/<p>/topics/<t>#<id>` for what the far end took. A
-//! send target is a topic — `projects/<p>/topics/<t>`, or a name alone in
-//! this transport's project — or empty for its own.
+//! claim, so [`Transport::claims`] answers `None`. The origin URI is under
+//! the scheme that is the technology's name:
+//! `google-pub-sub://projects/<p>/subscriptions/<s>#<id>` for what was
+//! pulled and `google-pub-sub://projects/<p>/topics/<t>#<id>` for what the
+//! far end took; a message's attributes are its headers in the
+//! `google-pub-sub` namespace. A send target is a topic —
+//! `projects/<p>/topics/<t>`, or a name alone in this transport's project —
+//! or empty for its own.
 //!
 //! The transport is its own far end (ADR-0051): [`Loopback`] stands the
 //! session up at the endpoint's authority and takes the one publish.
@@ -215,7 +218,7 @@ impl Transport for PubSubTransport {
         let pulled = client.pull(&subscription, most)?;
         let mut arrived = Vec::with_capacity(pulled.len());
         for message in pulled {
-            let origin = format!("pubsub://{subscription}#{}", message.id);
+            let origin = origin(&subscription, &message.id);
             let (client, from) = (Arc::clone(&client), subscription.clone());
             let ack_ids = [message.ack_id];
             let acknowledgement = Acknowledgement::deferred(move |verdict| match verdict {
@@ -225,7 +228,7 @@ impl Transport for PubSubTransport {
             arrived.push(
                 Arrived::whole(origin, message.data, acknowledgement)
                     .detected()
-                    .with_headers(Headers::of("pubsub").text(message.attributes)),
+                    .with_headers(Headers::of("google-pub-sub").text(message.attributes)),
             );
         }
         Ok(arrived)
@@ -285,8 +288,9 @@ impl Configured for PubSubTransport {
         ],
     };
 
-    /// The schemes a Location's address is entered with to choose this technology.
-    const SCHEMES: &'static [&'static str] = &["pubsub"];
+    /// The schemes a Location's address is entered with to choose this
+    /// technology: its name (ADR-0011, amendment 2026-11-19).
+    const SCHEMES: &'static [&'static str] = &["google-pub-sub"];
 
     /// The topic setting: the address names only the endpoint.
     fn own_target(_address: &str) -> &str {
@@ -316,6 +320,15 @@ impl Configured for PubSubTransport {
         self.connections = self.connections.timed_by(clock);
         self
     }
+}
+
+/// The message `id` on `resource` — a subscription it was pulled from or a
+/// topic it was published to, in full — as an origin says it, under the
+/// scheme above: `google-pub-sub://<resource>#<id>`. The transport's receive
+/// and the session's answers both name a message by it.
+#[must_use]
+pub(crate) fn origin(resource: &str, id: &str) -> String {
+    format!("google-pub-sub://{resource}#{id}")
 }
 
 impl PubSubTransport {
@@ -382,7 +395,7 @@ mod tests {
 
     #[test]
     fn a_send_location_publishes_to_its_topic_and_a_target_naming_another_wins() {
-        let location = "pubsub://pubsub.googleapis.com";
+        let location = "google-pub-sub://pubsub.googleapis.com";
         let given = [
             ("project".to_string(), Given::Text("party-x".to_string())),
             ("topic".to_string(), Given::Text("orders".to_string())),
@@ -461,7 +474,7 @@ mod tests {
         assert!(
             first
                 .origin_uri
-                .starts_with("pubsub://projects/party-x/subscriptions/orders-xmip#")
+                .starts_with("google-pub-sub://projects/party-x/subscriptions/orders-xmip#")
         );
         second.failed().expect("nacked");
         third
@@ -479,7 +492,7 @@ mod tests {
         assert_eq!(
             events[0],
             Event::Published(Taken::new(
-                "pubsub://projects/party-x/topics/orders#1",
+                "google-pub-sub://projects/party-x/topics/orders#1",
                 b"UNA:+.? '".to_vec()
             ))
         );
@@ -546,7 +559,10 @@ mod tests {
         let loopback = PubSubTransport::loopback();
         let arrived = loopback.round(b"UNA:+.? '").expect("round");
         assert_eq!(arrived.bytes, b"UNA:+.? '");
-        assert_eq!(arrived.origin_uri, "pubsub://projects/probe/topics/probe#1");
+        assert_eq!(
+            arrived.origin_uri,
+            "google-pub-sub://projects/probe/topics/probe#1"
+        );
         assert_eq!(loopback.name(), "google-pub-sub");
         assert_eq!(loopback.ceiling(), Some(ceiling()));
         assert!(loopback.refuses(&[0xff]).is_none());
