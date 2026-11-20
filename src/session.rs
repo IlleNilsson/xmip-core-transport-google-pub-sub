@@ -257,15 +257,12 @@ impl Session {
 
 /// The message ids a document's `ackIds` name.
 fn acknowledged(document: &Value) -> Vec<String> {
-    document["ackIds"]
-        .as_array()
-        .map(|each| {
-            each.iter()
-                .filter_map(|ack| ack.as_str()?.strip_prefix("ack-"))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    document["ackIds"].as_array().map_or_default(|each| {
+        each.iter()
+            .filter_map(|ack| ack.as_str()?.strip_prefix("ack-"))
+            .map(str::to_string)
+            .collect()
+    })
 }
 
 fn answer(body: &Value) -> Response {

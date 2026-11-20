@@ -166,13 +166,12 @@ fn received(value: &Value) -> Result<Received> {
         data,
         attributes: value["message"]["attributes"]
             .as_object()
-            .map(|attributes| {
+            .map_or_default(|attributes| {
                 attributes
                     .iter()
                     .filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string())))
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
     })
 }
 
