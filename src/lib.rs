@@ -15,12 +15,16 @@
 //! failed. A Send Location
 //! publishes a Stream as one message. Both present a bearer token over
 //! plain HTTP/1.1 on a socket — `https://` with the `tls` feature, which is
-//! the http technology's TLS (ADR-0033). Obtaining the token is outside: a
-//! Location is configured with it.
+//! the http technology's TLS (ADR-0033). The token is the Location's
+//! secret, `secret = "<name>"`, a `password` the Administration Database
+//! keeps, read at each request (ADR-0019, amendment 2026-10-29; ADR-0015,
+//! amendment 2026-11-25). Obtaining it is outside: a token Google issues
+//! expires within the hour, and is set again.
 //!
 //! ```text
 //! client.rs    Xmip's side: publish, pull, acknowledge, nack; JSON by serde
 //! session.rs   the far end a test or the System Tests run on loopback
+//! loopback.rs  both ends of one exchange on this machine (ADR-0051)
 //! ```
 //!
 //! The endpoint, HTTP itself and the judgment of an answer come from the
@@ -43,26 +47,21 @@
 //! `projects/<p>/topics/<t>`, or a name alone in this transport's project —
 //! or empty for its own.
 //!
-//! The transport is its own far end (ADR-0051): [`Loopback`] stands the
+//! The transport is its own far end (ADR-0051): its `Loopback` stands the
 //! session up at the endpoint's authority and takes the one publish.
 
 pub mod client;
+mod loopback;
 pub mod session;
 
-use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub use client::{Client, MAX_MESSAGES, Received};
 use http::endpoint::Connections;
-use net::Endpoint;
 use net::ceiling;
 pub use session::{Event, Session};
-use transport::ArrivalIdentity;
-use transport::error::{Result, TransportError, protocol_error};
-use transport::listening::Listening;
-use transport::loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
-use transport::socket;
+use transport::error::{Result, TransportError};
 use transport::{Acknowledgement, Arrived, Configured, Directions, Headers, Transport, Verdict};
 use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
 
@@ -82,13 +81,6 @@ pub fn refusal(bytes: &[u8]) -> Option<String> {
         .then(|| "a message has data or an attribute, and an empty Stream has neither".to_string())
 }
 
-/// What the loopback pair agrees on: one project, one topic, one
-/// subscription reading it, one bearer token.
-const LOOPBACK_PROJECT: &str = "probe";
-const LOOPBACK_TOPIC: &str = "probe";
-const LOOPBACK_SUBSCRIPTION: &str = "probe-xmip";
-const LOOPBACK_TOKEN: &str = "ya29.probe";
-
 #[derive(Clone)]
 pub struct PubSubTransport {
     endpoint: String,
@@ -100,6 +92,10 @@ pub struct PubSubTransport {
     /// The connections kept to the service, shared by every client this
     /// makes.
     connections: Connections,
+    /// The secret the Location names, the bearer token, read at each
+    /// request (ADR-0019, amendment 2026-10-29; ADR-0015, amendment
+    /// 2026-11-25); `token` where it names none.
+    secret: Option<transport::Secured>,
 }
 
 impl PubSubTransport {
@@ -121,6 +117,7 @@ impl PubSubTransport {
             token: String::new(),
             timeout: None,
             connections: Connections::new(),
+            secret: None,
         }
     }
 
@@ -131,12 +128,15 @@ impl PubSubTransport {
         self
     }
 
-    /// The client this transport speaks through.
+    /// The client this transport speaks through, presenting the token the
+    /// Location's secret holds, read now, or the one it was built with.
     ///
     /// # Errors
-    /// Where the endpoint is not an HTTP URL.
+    /// Where the endpoint is not an HTTP URL, or the secret is not set,
+    /// cannot be read or is no password.
     pub fn client(&self) -> Result<Client> {
-        let client = Client::new(&self.endpoint, &self.token)?;
+        let token = transport::secured::presented(self.secret.as_ref(), &self.token, self.name())?;
+        let client = Client::new(&self.endpoint, &token)?;
         let client = client.sharing(self.connections.clone());
         Ok(match self.timeout {
             Some(timeout) => client.timing_out_after(timeout),
@@ -301,10 +301,10 @@ impl Configured for PubSubTransport {
         Some(&mut self.timeout)
     }
 
-    /// The bearer token comes through the Location's credentials, never a
-    /// setting; the transport is built without it. A Receive Location
-    /// publishes to no topic and a Send Location pulls from no
-    /// subscription, so each leaves the other's empty.
+    /// The bearer token is the Location's secret, never a setting
+    /// ([`Configured::secured_by`]); the transport is built without it. A
+    /// Receive Location publishes to no topic and a Send Location pulls
+    /// from no subscription, so each leaves the other's empty.
     fn configured(address: &str, settings: &Read) -> Result<Self> {
         Ok(Self::new(
             address,
@@ -312,6 +312,14 @@ impl Configured for PubSubTransport {
             settings.optional_text("topic").unwrap_or_default(),
             settings.optional_text("subscription").unwrap_or_default(),
         ))
+    }
+
+    /// The bearer token the Location's secret holds, presented with each
+    /// publish, pull, acknowledge and nack, read as it is made. A token
+    /// names its own subject, so no setting names who presents it.
+    fn secured_by(mut self, secret: transport::Secured) -> Result<Self> {
+        self.secret = Some(secret);
+        Ok(self)
     }
 
     /// The connections its clients share, an HTTP/2 one's frames in a span
@@ -331,66 +339,15 @@ pub(crate) fn origin(resource: &str, id: &str) -> String {
     format!("google-pub-sub://{resource}#{id}")
 }
 
-impl PubSubTransport {
-    /// Both ends on this machine: an ephemeral local port, one token the
-    /// far end expects and the near end presents, the loopback timeout.
-    #[must_use]
-    pub fn loopback() -> Self {
-        Self::new(
-            "http://127.0.0.1:0",
-            LOOPBACK_PROJECT,
-            LOOPBACK_TOPIC,
-            LOOPBACK_SUBSCRIPTION,
-        )
-        .with_token(LOOPBACK_TOKEN)
-        .timing_out_after(LOOPBACK_TIMEOUT)
-    }
-}
-
-impl Loopback for PubSubTransport {
-    fn arrival_identity(&self) -> ArrivalIdentity {
-        ArrivalIdentity::Unnamed("the subscription delivers it: its attributes say who sent it")
-    }
-
-    fn ceiling(&self) -> Option<usize> {
-        Some(ceiling())
-    }
-
-    fn refuses(&self, payload: &[u8]) -> Option<String> {
-        refusal(payload)
-    }
-
-    fn far_end(&self) -> Result<Box<dyn FarEnd>> {
-        let mut session = self.session();
-        Ok(Box::new(Listening::new(
-            move |listener: &TcpListener| match session.serve_one(listener)? {
-                Event::Published(arrived) => Ok(arrived),
-                Event::Refused(status) => {
-                    Err(protocol_error(format!("the session refused: {status}")))
-                }
-                other => Err(protocol_error(format!("not a publish: {other:?}"))),
-            },
-            socket::bind_tcp(&Endpoint::parse(&self.endpoint)?.address())?,
-        )))
-    }
-
-    /// Publish the payload as one message, from a fresh near end
-    /// presenting this transport's token, at the endpoint on `address`.
-    fn send_to(&self, address: &str, payload: &[u8]) -> Result<()> {
-        let near = Self {
-            endpoint: format!("http://{address}"),
-            ..self.clone()
-        };
-        near.send("", payload)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::assert_matches;
+    use std::net::TcpListener;
     use std::thread::JoinHandle;
     use transport::Taken;
+    use transport::loopback::Loopback;
+    use transport::socket;
     use xcore::settings::Given;
 
     #[test]
@@ -425,8 +382,8 @@ mod tests {
         );
         assert_eq!(built.timeout, Some(Duration::from_secs(5)));
         assert!(
-            built.token.is_empty(),
-            "the token is the Location's credentials"
+            built.token.is_empty() && built.secret.is_none(),
+            "the token is the Location's secret, which secured_by gives"
         );
         let Err(refused) = PubSubTransport::open(endpoint, Applies::Send, &given[..1]) else {
             panic!("a Send Location's topic is required");
@@ -524,6 +481,39 @@ mod tests {
         assert!(!failure.retryable);
         let (_, events) = far_end.join().expect("thread");
         assert_eq!(events, vec![Event::Refused("UNAUTHENTICATED".to_string())]);
+    }
+
+    /// A Location naming its secret presents the bearer token it holds,
+    /// read at each request; one not set yet fails the publish, to be tried
+    /// again (ADR-0015, amendment 2026-11-25).
+    #[test]
+    fn a_location_presents_the_token_its_secret_holds() {
+        use transport::secured::Kept;
+        let drawn = Kept::drawn();
+        let (listener, address) = socket::bind_tcp("127.0.0.1:0").expect("bind");
+        let far_end = serve(node("http://x", &drawn).session(), listener, 1);
+        let given = [
+            ("project".to_string(), Given::Text("party-x".to_string())),
+            ("topic".to_string(), Given::Text("orders".to_string())),
+        ];
+        let location = format!("google-pub-sub://http://{address}");
+        let kept = Arc::new(Kept::default());
+        let near = PubSubTransport::open(&location, Applies::Send, &given)
+            .expect("built")
+            .secured_by(kept.secured("partner-x.pub-sub"))
+            .expect("a Location presents its token");
+        let own = PubSubTransport::own_target(&location);
+        let unset = near.send(own, b"x").expect_err("not set");
+        assert!(unset.retryable, "{unset}");
+        assert!(unset.message.contains("is not set"), "{unset}");
+        kept.set("partner-x.pub-sub", xcore::SecretKind::Password, &drawn);
+        near.send(own, b"UNA").expect("presented");
+        let (_, events) = far_end.join().expect("thread");
+        let topic = "google-pub-sub://projects/party-x/topics/orders#1";
+        assert_eq!(
+            events,
+            [Event::Published(Taken::new(topic, b"UNA".to_vec()))]
+        );
     }
 
     #[test]
