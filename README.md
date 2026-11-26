@@ -14,6 +14,10 @@ A Location names its secret, `secret = "<name>"`: a `password` secret holding th
 
 A receive acknowledges nothing: every message a pull hands on is whole and stays in flight until the runtime gives its verdict after the whole receive cycle (runtime-model section 5). Accepted acknowledges its ack id (`:acknowledge`); Refused acknowledges it too: a subscription's dead-letter policy moves a message only after its maximum delivery attempts, and no call dead-letters one message, so a refused message is acknowledged and not pulled again; the runtime has audited the refusal, and from Message creation on the Stream is kept in Xmip (ADR-0013). Failed nacks it (`:modifyAckDeadline` to zero seconds), so the next pull gets it rather than after the subscription's acknowledgement deadline lapses. A crash before the verdict leaves the message to that deadline: at-least-once, never a loss. The acknowledge is the one the receive made until 2026-10-02; the nack is one more request on a kept connection, made only for a failed cycle.
 
+## The declaration
+
+What a Location of this technology is configured with is two `const`s in its `declaration` module, `src/declaration.rs`, beside the code, which `Configured` reads (ADR-0064, amendment 2026-11-26): `declaration::SETTINGS`, `project`, `topic`, `subscription` and `timeout`, and `SCHEMES`, `google-pub-sub`. Built with its `declaration` feature alone (`--no-default-features --features declaration`), the crate is those and nothing more: its code and every crate the code is built on — the http technology, and with it TLS — are behind the default feature, and `tls`, which is code, turns the default on with it. So the library the surfaces load can carry it without the code, for the language server and the desktop to suggest and check a Pub/Sub Location's settings though no node in their process loaded the technology, once the gathering crate of open problem 48 links it. `test/Declaration.Test.ps1` in the estate holds that the declaration builds nothing the transport capability does not.
+
 ## Toolchain
 
 `rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it

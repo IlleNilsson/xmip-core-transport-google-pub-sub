@@ -12,7 +12,8 @@ path = "src/lib.rs"
 
 [dependencies]
 # A Technology depends on its parent Capability, never the reverse
-# (repository-model.md).
+# (repository-model.md). Its declaration takes the capability's `timeout`
+# (`transport::configured::timeout`).
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main" }
 # The settings this technology declares (xcore::settings), read through
 # transport::Configured (ADR-0064, amendment 2026-09-26).
@@ -20,14 +21,14 @@ xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core
 # The endpoint parser, the request and its answer, and TLS
 # behind the `tls` feature — one TLS stack in the estate, the http
 # technology's (ADR-0033).
-http = { package = "xmip-core-transport-http", git = "https://github.com/IlleNilsson/xmip-core-transport-http", branch = "main" }
+http = { package = "xmip-core-transport-http", git = "https://github.com/IlleNilsson/xmip-core-transport-http", branch = "main", optional = true }
 # HTTP/1.1 on the wire (`net::http`) and the URL an endpoint is
 # (`net::Endpoint`): the one codec every technology riding on HTTP calls.
-net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
+net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main", optional = true }
 # The API answers in JSON, and serde reads it.
-serde_json = "1"
+serde_json = { version = "1", optional = true }
 # Bytes travel in JSON as base64, the estate's one: codec's.
-codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main", optional = true }
 
 [dev-dependencies]
 # The secrets a test sets, from the capability's test support and never a
@@ -35,9 +36,17 @@ codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNil
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main", features = ["test-support"] }
 
 [features]
-default = []
-# HTTPS endpoints. Off by default, as it is in the http technology.
-tls = ["http/tls"]
+# The technology: its code, everything it is built on, and its declaration.
+# Without it the crate is its declaration alone (ADR-0064, amendments
+# 2026-10-22 and 2026-11-26).
+default = ["declaration", "dep:http", "dep:net", "dep:serde_json", "dep:codec"]
+# The declaration alone: what a Location of this technology is configured
+# with, `declaration::SETTINGS` and `SCHEMES`, and none of
+# the code — what the surfaces' library is to carry (open problem 48).
+declaration = []
+# HTTPS endpoints. Off by default, as it is in the http technology; the
+# technology's code, so the default with it.
+tls = ["default", "http/tls"]
 
 [lints.rust]
 unsafe_code = "forbid"

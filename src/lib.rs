@@ -49,24 +49,44 @@
 //!
 //! The transport is its own far end (ADR-0051): its `Loopback` stands the
 //! session up at the endpoint's authority and takes the one publish.
+//!
+//! **Built with its `declaration` feature alone** the crate is
+//! [`declaration`], what a Location of it is configured with, and none of
+//! the code above, which is behind the default feature: what the surfaces'
+//! library carries (ADR-0064, amendment 2026-11-26).
 
+#[cfg(feature = "default")]
 pub mod client;
+#[cfg(feature = "declaration")]
+pub mod declaration;
+#[cfg(feature = "default")]
 mod loopback;
+#[cfg(feature = "default")]
 pub mod session;
 
+#[cfg(feature = "default")]
 use std::sync::Arc;
+#[cfg(feature = "default")]
 use std::time::Duration;
 
+#[cfg(feature = "default")]
 pub use client::{Client, MAX_MESSAGES, Received};
+#[cfg(feature = "default")]
 use http::endpoint::Connections;
+#[cfg(feature = "default")]
 use net::ceiling;
+#[cfg(feature = "default")]
 pub use session::{Event, Session};
+#[cfg(feature = "default")]
 use transport::error::{Result, TransportError};
+#[cfg(feature = "default")]
 use transport::{Acknowledgement, Arrived, Configured, Directions, Headers, Transport, Verdict};
-use xcore::settings::{Applies, Kind, Presence, Read, Setting, Settings};
+#[cfg(feature = "default")]
+use xcore::settings::{Read, Settings};
 
 /// The largest message Pub/Sub carries: ten mebibytes, the number its own
 /// refusal names.
+#[cfg(feature = "default")]
 #[must_use]
 pub const fn ceiling() -> usize {
     10 * 1024 * 1024
@@ -74,6 +94,7 @@ pub const fn ceiling() -> usize {
 
 /// Why `bytes` cannot travel as a message, or `None` where they can: a
 /// message has data or an attribute, and an empty Stream has neither.
+#[cfg(feature = "default")]
 #[must_use]
 pub fn refusal(bytes: &[u8]) -> Option<String> {
     bytes
@@ -81,6 +102,7 @@ pub fn refusal(bytes: &[u8]) -> Option<String> {
         .then(|| "a message has data or an attribute, and an empty Stream has neither".to_string())
 }
 
+#[cfg(feature = "default")]
 #[derive(Clone)]
 pub struct PubSubTransport {
     endpoint: String,
@@ -98,6 +120,7 @@ pub struct PubSubTransport {
     secret: Option<transport::Secured>,
 }
 
+#[cfg(feature = "default")]
 impl PubSubTransport {
     /// Speak to the endpoint at `endpoint` — `https://pubsub.googleapis.com`
     /// in the cloud, `http://host:port` for a stand-in — in `project`,
@@ -184,6 +207,7 @@ impl PubSubTransport {
     }
 }
 
+#[cfg(feature = "default")]
 impl Transport for PubSubTransport {
     fn name(&self) -> &'static str {
         "google-pub-sub"
@@ -252,45 +276,10 @@ impl Transport for PubSubTransport {
     }
 }
 
+#[cfg(feature = "default")]
 impl Configured for PubSubTransport {
-    /// The address is the REST API's endpoint, `https://pubsub.googleapis.com`
-    /// in the cloud.
-    const SETTINGS: &'static Settings = &Settings {
-        technology: env!("CARGO_PKG_NAME"),
-        settings: &[
-            Setting {
-                name: "project",
-                kind: Kind::Text,
-                presence: Presence::Required,
-                meaning: "The project the topic and the subscription belong to.",
-                applies: Applies::Both,
-            },
-            Setting {
-                name: "topic",
-                kind: Kind::Text,
-                presence: Presence::Required,
-                meaning: "The topic a Location publishes to unless the target names another.",
-                applies: Applies::Send,
-            },
-            Setting {
-                name: "subscription",
-                kind: Kind::Text,
-                presence: Presence::Required,
-                meaning: "The subscription a Location pulls from and acknowledges on.",
-                applies: Applies::Receive,
-            },
-            transport::configured::timeout(
-                Applies::Both,
-                None,
-                "How long an endpoint that stops answering is waited on; unbounded \
-                 when left out.",
-            ),
-        ],
-    };
-
-    /// The schemes a Location's address is entered with to choose this
-    /// technology: its name (ADR-0011, amendment 2026-11-19).
-    const SCHEMES: &'static [&'static str] = &["google-pub-sub"];
+    const SETTINGS: &'static Settings = declaration::SETTINGS;
+    const SCHEMES: &'static [&'static str] = declaration::SCHEMES;
 
     /// The topic setting: the address names only the endpoint.
     fn own_target(_address: &str) -> &str {
@@ -334,6 +323,7 @@ impl Configured for PubSubTransport {
 /// topic it was published to, in full — as an origin says it, under the
 /// scheme above: `google-pub-sub://<resource>#<id>`. The transport's receive
 /// and the session's answers both name a message by it.
+#[cfg(feature = "default")]
 #[must_use]
 pub(crate) fn origin(resource: &str, id: &str) -> String {
     format!("google-pub-sub://{resource}#{id}")
@@ -348,7 +338,7 @@ mod tests {
     use transport::Taken;
     use transport::loopback::Loopback;
     use transport::socket;
-    use xcore::settings::Given;
+    use xcore::settings::{Applies, Given};
 
     #[test]
     fn a_send_location_publishes_to_its_topic_and_a_target_naming_another_wins() {
