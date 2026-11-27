@@ -36,16 +36,12 @@ codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNil
 transport = { package = "xmip-core-transport", git = "https://github.com/IlleNilsson/xmip-core-transport", branch = "main", features = ["test-support"] }
 
 [features]
-# The technology: its code, everything it is built on, and its declaration.
-# Without it the crate is its declaration alone (ADR-0064, amendments
-# 2026-10-22 and 2026-11-26).
+# The code and its declaration: the transport guide's "The declaration",
+# module/core/capability/transport/doc/adding-a-transport.md.
 default = ["declaration", "dep:http", "dep:net", "dep:serde_json", "dep:codec"]
-# The declaration alone: what a Location of this technology is configured
-# with, `declaration::SETTINGS` and `SCHEMES`, and none of
-# the code — what the surfaces' library is to carry (open problem 48).
+# The declaration alone.
 declaration = []
-# HTTPS endpoints. Off by default, as it is in the http technology; the
-# technology's code, so the default with it.
+# HTTPS endpoints: the http technology's `tls`, off by default as there.
 tls = ["default", "http/tls"]
 
 [lints.rust]
